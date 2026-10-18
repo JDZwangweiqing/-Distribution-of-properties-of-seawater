@@ -55,6 +55,12 @@
         </select>
       </label>
       <button class="view" id="btnView">切换为剖面图</button>
+      <label id="dirWrap" style="display:none">剖面方向
+        <select id="selDir">
+          <option value="merid" selected>经向（纬度–深度）</option>
+          <option value="zonal">纬向（经度–深度）</option>
+        </select>
+      </label>
       <label id="lonWrap" style="display:none">剖面经度
         <select id="selLon">
           <option value="120">120°E（西太平洋）</option>
@@ -68,6 +74,15 @@
           <option value="30">30°E</option>
           <option value="60">60°E（印度洋）</option>
           <option value="90">90°E（印度洋）</option>
+        </select>
+      </label>
+      <label id="latWrap" style="display:none">剖面纬度
+        <select id="selLat">
+          <option value="60">60°N（北太平洋 / 北大西洋）</option>
+          <option value="30">30°N（北半球副热带）</option>
+          <option value="0" selected>0°（赤道）</option>
+          <option value="-30">30°S（南半球副热带）</option>
+          <option value="-60">60°S（南大洋）</option>
         </select>
       </label>
     </div>
@@ -162,6 +177,23 @@ function interpSec(key, kx, lat, depth){
   if (isNaN(v00)||isNaN(v01)||isNaN(v10)||isNaN(v11)) return NaN;
   return (v00*(1-f)+v01*f)*(1-fy) + (v10*(1-f)+v11*f)*fy;
 }
+function iyFromLat(lat){
+  return Math.min(NY-1, Math.max(0, Math.round((90-lat)/2)));
+}
+function interpZonal(key, iy, lon, depth){
+  const x = ((lon%360)+360)%360;
+  let t = (x-1)/2, ix = Math.floor(t), fx = t-ix;
+  if (ix < 0){ ix += 180; }
+  const ix0 = ((ix%180)+180)%180, ix1 = (ix0+1)%180;
+  let li = -1;
+  for (let i=0;i<NL-1;i++){ if (depth >= LVL[i] && depth <= LVL[i+1]){ li = i; break; } }
+  if (li < 0) return NaN;
+  const f = (depth-LVL[li])/(LVL[li+1]-LVL[li]);
+  const v00 = valRaw(key,li,iy,ix0), v01 = valRaw(key,li,iy,ix1);
+  const v10 = valRaw(key,li+1,iy,ix0), v11 = valRaw(key,li+1,iy,ix1);
+  if (isNaN(v00)||isNaN(v01)||isNaN(v10)||isNaN(v11)) return NaN;
+  return (v00*(1-fx)+v01*fx)*(1-f) + (v10*(1-fx)+v11*fx)*f;
+}
 // ---- canvas setup ----
 const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -176,6 +208,10 @@ const selDepth = document.getElementById("selDepth");
 const selLon = document.getElementById("selLon");
 const btnView = document.getElementById("btnView");
 const lonWrap = document.getElementById("lonWrap");
+const dirWrap = document.getElementById("dirWrap");
+const latWrap = document.getElementById("latWrap");
+const selDir = document.getElementById("selDir");
+const selLat = document.getElementById("selLat");
 const figTitle = document.getElementById("figTitle");
 const tip = document.getElementById("tip");
 const depthPow = 0.58, DMAX = 5500;
@@ -211,6 +247,20 @@ function render(){
         d8[o]=rgb[0]; d8[o+1]=rgb[1]; d8[o+2]=rgb[2]; d8[o+3]=255;
       }
     }
+  } else if (selDir.value === "zonal") {
+    const iy = iyFromLat(+selLat.value);
+    for (let py=0; py<ih; py++){
+      const depth = y2d((py+0.5)/ih);
+      for (let px=0; px<iw; px++){
+        const lon = (px+0.5)/iw*360;
+        let rgb;
+        const raw = interpZonal(key, iy, lon, depth);
+        if (isNaN(raw)) rgb = BOTTOM_C;
+        else { const c = colFor(V.stops, V.q(raw)); rgb = c; }
+        const o = (py*iw+px)*4;
+        d8[o]=rgb[0]; d8[o+1]=rgb[1]; d8[o+2]=rgb[2]; d8[o+3]=255;
+      }
+    }
   } else {
     const kx = Math.round((((+selLon.value)%360)+360)%360 / 2) % 180;
     for (let py=0; py<ih; py++){
@@ -231,9 +281,12 @@ function render(){
   drawFrame(V);
   drawColorbar(V);
   const depthLab = ["0 m（表层）","100 m","1000 m","5000 m（近底层）"][["0","6","18","31"].indexOf(selDepth.value)];
+  const latLab = selLat.options[selLat.selectedIndex].text.split("（")[0];
   figTitle.textContent = mode === "map"
     ? "全球海洋" + V.name + "分布 — 深度 " + depthLab + "（年平均气候态）"
-    : V.name + "经向垂直剖面（纬度–深度）— 经度 " + selLon.options[selLon.selectedIndex].text + "（年平均气候态）";
+    : (selDir.value === "zonal"
+        ? V.name + "纬向垂直剖面（经度–深度）— 纬度 " + latLab + "（年平均气候态）"
+        : V.name + "经向垂直剖面（纬度–深度）— 经度 " + selLon.options[selLon.selectedIndex].text + "（年平均气候态）");
 }
 function frameTicks(x0,y0,w,h){
   ctx.strokeStyle = "#222"; ctx.lineWidth = 1.2;
@@ -271,6 +324,26 @@ function drawFrame(V){
       label(nm, x0-10, y0+(90-lat)/180*h-6, "right", 12);
       label(nm, x0+w+10, y0+(90-lat)/180*h-6, "left", 12);
     }
+  } else if (mode === "sec" && selDir.value === "zonal"){
+    const dTicks = [0,100,200,500,1000,2000,3000,4000,5000];
+    for (const d of dTicks){
+      const y = y0 + d2y(d)*h;
+      ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0-6, y); ctx.stroke();
+      label(d>=1000? (d/1000)+" km" : d+"", x0-10, y-6, "right", 11);
+    }
+    const lonNames = {0:"0°",30:"30°E",60:"60°E",90:"90°E",120:"120°E",150:"150°E",180:"180°",
+                      210:"150°W",240:"120°W",270:"90°W",300:"60°W",330:"30°W",360:"0°"};
+    for (let lon=0; lon<=360; lon+=10){
+      const x = x0 + lon/360*w, big = lon%30===0;
+      ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, y0+h); ctx.lineTo(x, y0+h+(big?7:4)); ctx.stroke();
+    }
+    for (let lon=0; lon<=360; lon+=30)
+      label(lonNames[lon], x0+lon/360*w, y0+h+10, "center", 12);
+    label("经度", x0+w/2, y0+h+26, "center", 12);
+    ctx.save(); ctx.translate(10, y0+h/2); ctx.rotate(-Math.PI/2);
+    label("深度", 0, -6, "center", 12); ctx.restore();
   } else {
     const dTicks = [0,100,200,500,1000,2000,3000,4000,5000];
     for (const d of dTicks){
@@ -331,13 +404,21 @@ function labelCbx(txt, x, y){
 selVar.addEventListener("change", render);
 selDepth.addEventListener("change", render);
 selLon.addEventListener("change", render);
+selLat.addEventListener("change", render);
+function updateSecControls(){
+  const sec = mode === "sec";
+  dirWrap.style.display = sec ? "" : "none";
+  latWrap.style.display = (sec && selDir.value === "zonal") ? "" : "none";
+  lonWrap.style.display = (sec && selDir.value === "merid") ? "" : "none";
+}
 btnView.addEventListener("click", () => {
   mode = mode === "map" ? "sec" : "map";
   btnView.textContent = mode === "map" ? "切换为剖面图" : "切换为平面图";
   selDepth.disabled = mode === "sec";
-  lonWrap.style.display = mode === "sec" ? "" : "none";
+  updateSecControls();
   render();
 });
+selDir.addEventListener("change", () => { updateSecControls(); render(); });
 cv.addEventListener("mousemove", e => {
   if (!ready) return;
   const r = cv.getBoundingClientRect();
@@ -350,6 +431,13 @@ cv.addEventListener("mousemove", e => {
     const raw = interpMap(key, lon, lat, +selDepth.value);
     const vv = isNaN(raw) ? null : (raw).toFixed(V.dec);
     txt = fmtCoord(lat,lon) + " · " + (vv===null ? "陆地/无数据" : V.name+" "+vv+" "+V.unit);
+  } else if (selDir.value === "zonal"){
+    const lon = (mx-M.l)/PW*360;
+    const depth = y2d((my-M.t)/PH);
+    const raw = interpZonal(key, iyFromLat(+selLat.value), lon, depth);
+    const vv = isNaN(raw) ? null : (raw).toFixed(V.dec);
+    txt = fmtCoord(0, lon).split(" , ")[1] + " · 深度 " + Math.round(depth) + " m · " +
+          (vv===null ? "海底以下/无数据" : V.name+" "+vv+" "+V.unit);
   } else {
     const lat = 90-(mx-M.l)/PW*180;
     const depth = y2d((my-M.t)/PH);
