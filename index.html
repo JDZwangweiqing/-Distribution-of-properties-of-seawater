@@ -50,7 +50,9 @@
         <select id="selDepth">
           <option value="0">0 m（表层）</option>
           <option value="6">100 m</option>
+          <option value="9">200 m</option>
           <option value="18">1000 m</option>
+          <option value="27">3000 m</option>
           <option value="31">5000 m（近底层）</option>
         </select>
       </label>
@@ -280,7 +282,7 @@ function render(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
   drawFrame(V);
   drawColorbar(V);
-  const depthLab = ["0 m（表层）","100 m","1000 m","5000 m（近底层）"][["0","6","18","31"].indexOf(selDepth.value)];
+  const depthLab = ["0 m（表层）","100 m","200 m","1000 m","3000 m","5000 m（近底层）"][["0","6","9","18","27","31"].indexOf(selDepth.value)];
   const latLab = selLat.options[selLat.selectedIndex].text.split("（")[0];
   figTitle.textContent = mode === "map"
     ? "全球海洋" + V.name + "分布 — 深度 " + depthLab + "（年平均气候态）"
